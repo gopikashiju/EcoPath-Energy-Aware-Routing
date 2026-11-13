@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoPath — Energy-Aware Route Planner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg: #14171a;
+    --panel: #1b1f23;
+    --panel-raised: #22262b;
+    --line: #2d3238;
+    --text: #e7e9ea;
+    --muted: #8a9098;
+    --amber: #e8a33d;
+    --blue: #5b8dbe;
+    --green: #4fb87a;
+    --red: #d96a6a;
+    --grid-cell: #1e2226;
+    --grid-obstacle: #3a3f45;
+  }
+
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Space Grotesk', system-ui, sans-serif;
+    min-height:100vh;
+  }
+  code, .mono{ font-family:'JetBrains Mono', monospace; }
+
+  header{
+    padding:28px 32px 20px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:baseline;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  header .tag{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.12em;
+    color:var(--amber);
+    background:rgba(232,163,61,0.1);
+    border:1px solid rgba(232,163,61,0.35);
+    padding:3px 8px;
+    border-radius:3px;
+  }
+  header h1{
+    font-size:22px;
+    font-weight:700;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  header p{
+    margin:0;
+    color:var(--muted);
+    font-size:13.5px;
+  }
+
+  .layout{
+    display:grid;
+    grid-template-columns: minmax(0,1fr) 340px;
+    gap:24px;
+    padding:24px 32px 40px;
+    max-width:1180px;
+    margin:0 auto;
+  }
+  @media (max-width: 860px){
+    .layout{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px;
+  }
+  .panel h2{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--muted);
+    margin:0 0 14px;
+    font-weight:600;
+  }
+
+  .toolbar{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:16px;
+  }
+  button{
+    font-family:inherit;
+    font-size:13px;
+    font-weight:600;
+    padding:8px 14px;
+    border-radius:6px;
+    border:1px solid var(--line);
+    background:var(--panel-raised);
+    color:var(--text);
+    cursor:pointer;
+    transition:border-color .15s ease, transform .1s ease;
+  }
+  button:hover{ border-color:#4a5058; }
+  button:active{ transform:translateY(1px); }
+  button.mode-active{
+    border-color:var(--amber);
+    color:var(--amber);
+    background:rgba(232,163,61,0.08);
+  }
+  button.primary{
+    background:var(--amber);
+    color:#20180a;
+    border-color:var(--amber);
+  }
+  button.primary:hover{ filter:brightness(1.08); }
+  button.ghost{
+    background:transparent;
+  }
+
+  #grid-wrap{
+    display:flex;
+    justify-content:center;
+    padding:4px;
+  }
+  #grid{
+    display:grid;
+    gap:2px;
+    background:var(--line);
+    border:1px solid var(--line);
+    border-radius:6px;
+    overflow:hidden;
+  }
+  .cell{
+    width:26px;
+    height:26px;
+    background:var(--grid-cell);
+    position:relative;
+    cursor:pointer;
+  }
+  .cell.obstacle{ background:var(--grid-obstacle); }
+  .cell.start{ background:var(--amber); }
+  .cell.end{ background:var(--green); }
+  .cell.path-short::after,
+  .cell.path-eco::after{
+    content:'';
+    position:absolute;
+    inset:6px;
+    border-radius:3px;
+  }
+  .cell.path-short::after{ background:var(--blue); opacity:0.85; }
+  .cell.path-eco::after{ background:var(--green); opacity:0.9; }
+  .cell.path-both::after{
+    content:'';
+    position:absolute;
+    inset:6px;
+    border-radius:3px;
+    background:linear-gradient(135deg, var(--blue) 50%, var(--green) 50%);
+  }
+
+  .legend{
+    display:flex;
+    gap:16px;
+    flex-wrap:wrap;
+    margin-top:14px;
+    font-size:12px;
+    color:var(--muted);
+  }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .swatch{ width:11px; height:11px; border-radius:3px; display:inline-block; }
+
+  .hint{
+    font-size:12.5px;
+    color:var(--muted);
+    margin-top:10px;
+    line-height:1.5;
+  }
+
+  .stat-row{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .stat-card{
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:12px;
+  }
+  .stat-card.shortest{ border-top:2px solid var(--blue); }
+  .stat-card.eco{ border-top:2px solid var(--green); }
+  .stat-card h3{
+    margin:0 0 8px;
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--muted);
+  }
+  .stat-line{
+    display:flex;
+    justify-content:space-between;
+    font-size:13px;
+    padding:3px 0;
+  }
+  .stat-line b{ font-family:'JetBrains Mono', monospace; font-weight:600; }
+
+  .verdict{
+    margin-top:14px;
+    padding:12px 14px;
+    border-radius:8px;
+    font-size:13px;
+    line-height:1.55;
+    border:1px solid var(--line);
+  }
+  .verdict.accept{ border-color: rgba(79,184,122,0.4); background: rgba(79,184,122,0.08); }
+  .verdict.reject{ border-color: rgba(217,106,106,0.4); background: rgba(217,106,106,0.08); }
+  .verdict b{ color:var(--text); }
+
+  .config-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size:12.5px;
+    color:var(--muted);
+    padding:4px 0;
+    border-bottom:1px dashed var(--line);
+  }
+  .config-row:last-child{ border-bottom:none; }
+  .config-row b{ color:var(--text); font-family:'JetBrains Mono', monospace; }
+
+  .cell.dim::after{ opacity:0.3; }
+  .cell.start::after,
+  .cell.end::after{ display:none; }
+
+  .slider-block{ border-bottom:1px dashed var(--line); padding-bottom:6px; margin-bottom:2px; }
+  .slider-block .config-row{ border-bottom:none; }
+  .slider-block input[type=range]{
+    width:100%;
+    accent-color:var(--amber);
+    margin:2px 0 4px;
+    cursor:pointer;
+  }
+
+  footer{
+    text-align:center;
+    color:var(--muted);
+    font-size:11.5px;
+    padding:18px;
+    border-top:1px solid var(--line);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>EcoPath</h1>
+  <p>Energy-aware route planning for warehouse robots — turn-penalized A* vs standard A*</p>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <h2>Warehouse Grid</h2>
+    <div class="toolbar">
+      <button id="mode-obstacle" class="mode-active">🧱 Obstacle</button>
+      <button id="mode-start">🤖 Start</button>
+      <button id="mode-end">🎯 End</button>
+      <button id="clear-grid" class="ghost">Clear grid</button>
+    </div>
+    <div id="grid-wrap"><div id="grid"></div></div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--amber)"></span> Start</span>
+      <span><span class="swatch" style="background:var(--green)"></span> End</span>
+      <span><span class="swatch" style="background:var(--grid-obstacle)"></span> Obstacle</span>
+      <span><span class="swatch" style="background:var(--blue)"></span> Shortest path</span>
+      <span><span class="swatch" style="background:var(--green)"></span> Energy-aware path</span>
+      <span><span class="swatch" style="background:linear-gradient(135deg,var(--blue) 50%,var(--green) 50%)"></span> Shared cells</span>
+    </div>
+    <div class="hint">Click a mode above, then click cells on the grid to place it. Or load a preset scenario below.</div>
+    <div class="toolbar" style="margin-top:14px;">
+      <button id="preset-basic">Load: Basic Warehouse</button>
+      <button id="preset-corridor">Load: Zig-Zag Corridor</button>
+      <button id="preset-edge">Load: Edge Case (long detour)</button>
+      <button id="random-grid">🎲 Random obstacles</button>
+    </div>
+    <div class="toolbar" style="margin-top:4px;">
+      <button id="find-path" class="primary">▶ Find Paths</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:16px;">
+      <h2>Decision Rules</h2>
+      <div class="slider-block">
+        <div class="config-row"><span>Turn penalty weight</span><b id="w-val">0.30 × per turn</b></div>
+        <input type="range" id="w-slider" min="0" max="1" step="0.05" value="0.3" aria-label="Turn penalty weight">
+      </div>
+      <div class="slider-block">
+        <div class="config-row"><span>Max allowed detour</span><b id="cap-val">+25% distance</b></div>
+        <input type="range" id="cap-slider" min="0" max="100" step="5" value="25" aria-label="Maximum allowed detour in percent">
+      </div>
+      <div class="config-row"><span>Accept rule</span><b>lower energy AND within cap</b></div>
+    </div>
+
+    <div class="panel">
+      <h2>Comparison</h2>
+      <div class="stat-row">
+        <div class="stat-card shortest">
+          <h3>Shortest Path (A*)</h3>
+          <div class="stat-line"><span>Distance</span><b id="s-dist">–</b></div>
+          <div class="stat-line"><span>Turns</span><b id="s-turns">–</b></div>
+          <div class="stat-line"><span>Energy</span><b id="s-energy">–</b></div>
+        </div>
+        <div class="stat-card eco">
+          <h3>Energy-Aware Path</h3>
+          <div class="stat-line"><span>Distance</span><b id="e-dist">–</b></div>
+          <div class="stat-line"><span>Turns</span><b id="e-turns">–</b></div>
+          <div class="stat-line"><span>Energy</span><b id="e-energy">–</b></div>
+        </div>
+      </div>
+      <div id="verdict" class="verdict" style="display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<footer>EcoPath — runs entirely in your browser. No server, no external data.</footer>
+
+<script>
+const ROWS = 14, COLS = 20;
+let grid = Array.from({length: ROWS}, () => Array(COLS).fill(0)); // 0 empty, 1 obstacle
+let start = {r:2, c:2};
+let end = {r:11, c:17};
+let mode = 'obstacle';
+
+const gridEl = document.getElementById('grid');
+gridEl.style.gridTemplateColumns = `repeat(${COLS}, 26px)`;
+
+function buildGridDOM(){
+  gridEl.innerHTML = '';
+  for(let r=0; r<ROWS; r++){
+    for(let c=0; c<COLS; c++){
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r; cell.dataset.c = c;
+      cell.addEventListener('click', () => onCellClick(r,c));
+      gridEl.appendChild(cell);
+    }
+  }
+  renderGrid();
+}
+
+function onCellClick(r,c){
+  if(mode === 'obstacle'){
+    if((r===start.r&&c===start.c) || (r===end.r&&c===end.c)) return;
+    grid[r][c] = grid[r][c] ? 0 : 1;
+  } else if(mode === 'start'){
+    if(grid[r][c]) return;
+    start = {r,c};
+  } else if(mode === 'end'){
+    if(grid[r][c]) return;
+    end = {r,c};
+  }
+  renderGrid();
+}
+
+function renderGrid(pathShort, pathEco, recommended){
+  const shortSet = new Set((pathShort||[]).map(p=>p.r+','+p.c));
+  const ecoSet = new Set((pathEco||[]).map(p=>p.r+','+p.c));
+  document.querySelectorAll('.cell').forEach(cell=>{
+    const r = +cell.dataset.r, c = +cell.dataset.c;
+    cell.className = 'cell';
+    if(grid[r][c]) cell.classList.add('obstacle');
+    const key = r+','+c;
+    const inShort = shortSet.has(key), inEco = ecoSet.has(key);
+    if(inShort && inEco) cell.classList.add('path-both');
+    else if(inShort) cell.classList.add('path-short');
+    else if(inEco) cell.classList.add('path-eco');
+    if(recommended === 'eco' && inShort && !inEco) cell.classList.add('dim');
+    if(recommended === 'short' && inEco && !inShort) cell.classList.add('dim');
+    if(r===start.r && c===start.c) cell.classList.add('start');
+    if(r===end.r && c===end.c) cell.classList.add('end');
+  });
+}
+
+// mode buttons
+document.getElementById('mode-obstacle').onclick = () => setMode('obstacle');
+document.getElementById('mode-start').onclick = () => setMode('start');
+document.getElementById('mode-end').onclick = () => setMode('end');
+function setMode(m){
+  mode = m;
+  ['obstacle','start','end'].forEach(k=>{
+    document.getElementById('mode-'+k).classList.toggle('mode-active', k===m);
+  });
+}
+
+document.getElementById('clear-grid').onclick = () => {
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  resetStats();
+  renderGrid();
+};
+
+// ---- A* implementation ----
+function neighbors(r,c){
+  return [[r-1,c],[r+1,c],[r,c-1],[r,c+1]]
+    .filter(([nr,nc]) => nr>=0 && nr<ROWS && nc>=0 && nc<COLS && !grid[nr][nc]);
+}
+
+function heuristic(a,b){ return Math.abs(a.r-b.r) + Math.abs(a.c-b.c); }
+
+function directionOf(from, to){
+  if(to.r < from.r) return 'U';
+  if(to.r > from.r) return 'D';
+  if(to.c < from.c) return 'L';
+  return 'R';
+}
+
+// turnWeight = 0 for plain A*, >0 for energy-aware version
+function runAStar(turnWeight){
+  const key = (r,c) => r+','+c;
+  const startKey = key(start.r, start.c);
+  const open = new Map(); // key -> {r,c,g,f,dir}
+  const cameFrom = new Map();
+  const gScore = new Map();
+  const dirScore = new Map(); // direction used to arrive at this node in the best path so far
+
+  gScore.set(startKey, 0);
+  dirScore.set(startKey, null);
+  open.set(startKey, {r:start.r, c:start.c, f: heuristic(start,end)});
+
+  const closed = new Set();
+
+  while(open.size > 0){
+    // pick lowest f
+    let currentKey = null, current = null;
+    for(const [k,v] of open){
+      if(current === null || v.f < current.f){ current = v; currentKey = k; }
+    }
+    open.delete(currentKey);
+
+    if(current.r === end.r && current.c === end.c){
+      // reconstruct
+      const path = [];
+      let ck = currentKey;
+      while(ck){
+        const [r,c] = ck.split(',').map(Number);
+        path.unshift({r,c});
+        ck = cameFrom.get(ck);
+      }
+      // count turns
+      let turns = 0;
+      for(let i=2;i<path.length;i++){
+        const d1 = directionOf(path[i-2], path[i-1]);
+        const d2 = directionOf(path[i-1], path[i]);
+        if(d1 !== d2) turns++;
+      }
+      return { path, distance: path.length - 1, turns };
+    }
+
+    closed.add(currentKey);
+    const prevDir = dirScore.get(currentKey);
+
+    for(const [nr,nc] of neighbors(current.r, current.c)){
+      const nKey = key(nr,nc);
+      if(closed.has(nKey)) continue;
+      const dir = directionOf({r:current.r,c:current.c},{r:nr,c:nc});
+      const turnPenalty = (prevDir !== null && dir !== prevDir) ? turnWeight : 0;
+      const tentativeG = gScore.get(currentKey) + 1 + turnPenalty;
+
+      if(!gScore.has(nKey) || tentativeG < gScore.get(nKey)){
+        gScore.set(nKey, tentativeG);
+        dirScore.set(nKey, dir);
+        cameFrom.set(nKey, currentKey);
+        const f = tentativeG + heuristic({r:nr,c:nc}, end);
+        open.set(nKey, {r:nr, c:nc, f});
+      }
+    }
+  }
+  return null; // no path found
+}
+
+let hasResults = false;
+
+function getWeight(){ return parseFloat(document.getElementById('w-slider').value); }
+function getCapPct(){ return parseInt(document.getElementById('cap-slider').value, 10); }
+
+function updateRuleLabels(){
+  document.getElementById('w-val').textContent = getWeight().toFixed(2) + ' × per turn';
+  document.getElementById('cap-val').textContent = '+' + getCapPct() + '% distance';
+}
+
+function setRules(w, capPct){
+  document.getElementById('w-slider').value = w;
+  document.getElementById('cap-slider').value = capPct;
+  updateRuleLabels();
+}
+
+function resetStats(){
+  ['s-dist','s-turns','s-energy','e-dist','e-turns','e-energy'].forEach(id=>{
+    document.getElementById(id).textContent = '–';
+  });
+  document.getElementById('verdict').style.display = 'none';
+  hasResults = false;
+}
+
+function findPaths(fromButton){
+  const w = getWeight();
+  const capPct = getCapPct();
+  const shortest = runAStar(0);
+  const eco = runAStar(w);
+
+  if(!shortest || !eco){
+    if(fromButton) alert('No path exists between start and end with the current obstacles.');
+    return;
+  }
+
+  const shortEnergy = shortest.distance + shortest.turns * w;
+  const ecoEnergy = eco.distance + eco.turns * w;
+
+  document.getElementById('s-dist').textContent = shortest.distance;
+  document.getElementById('s-turns').textContent = shortest.turns;
+  document.getElementById('s-energy').textContent = shortEnergy.toFixed(2);
+
+  document.getElementById('e-dist').textContent = eco.distance;
+  document.getElementById('e-turns').textContent = eco.turns;
+  document.getElementById('e-energy').textContent = ecoEnergy.toFixed(2);
+
+  const maxAllowedDistance = shortest.distance * (1 + capPct / 100);
+  const isLowerEnergy = ecoEnergy < shortEnergy;
+  const withinCap = eco.distance <= maxAllowedDistance;
+  const accept = isLowerEnergy && withinCap;
+
+  const verdictEl = document.getElementById('verdict');
+  verdictEl.style.display = 'block';
+  verdictEl.className = 'verdict ' + (accept ? 'accept' : 'reject');
+
+  if(accept){
+    verdictEl.innerHTML = `<b>✅ Recommended: Energy-aware path.</b> It uses less estimated energy (${ecoEnergy.toFixed(2)} vs ${shortEnergy.toFixed(2)}) and stays within the +${capPct}% distance cap (${eco.distance} vs max ${maxAllowedDistance.toFixed(1)}).`;
+    renderGrid(shortest.path, eco.path, 'eco');
+  } else if(!isLowerEnergy){
+    verdictEl.innerHTML = `<b>⚠️ Falling back to shortest path.</b> The energy-aware route doesn't actually save energy here (${ecoEnergy.toFixed(2)} vs ${shortEnergy.toFixed(2)}), so the standard shortest path is used instead.`;
+    renderGrid(shortest.path, eco.path, 'short');
+  } else {
+    verdictEl.innerHTML = `<b>🚫 Falling back to shortest path.</b> The energy-aware route saves energy but its distance (${eco.distance}) exceeds the +${capPct}% detour cap (max ${maxAllowedDistance.toFixed(1)}) versus the shortest path (${shortest.distance}) — rejected as an unreasonable detour.`;
+    renderGrid(shortest.path, eco.path, 'short');
+  }
+  hasResults = true;
+}
+
+document.getElementById('find-path').onclick = () => findPaths(true);
+
+// sliders: update labels, and refresh the result if one is already showing
+['w-slider','cap-slider'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', () => {
+    updateRuleLabels();
+    if(hasResults) findPaths(false);
+  });
+});
+
+// ---- presets ----
+function loadPreset(name){
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  resetStats();
+
+  if(name === 'basic'){
+    start = {r:2,c:2}; end = {r:11,c:17};
+    const walls = [];
+    for(let r=3;r<11;r++) walls.push([r,8]);
+    for(let r=4;r<12;r++) walls.push([r,13]);
+    walls.forEach(([r,c]) => grid[r][c] = 1);
+  }
+
+  if(name === 'corridor'){
+    start = {r:1,c:1}; end = {r:12,c:18};
+    // zig-zag walls forcing many turns on the shortest route
+    for(let c=2;c<=16;c+=4){
+      for(let r=0;r<10;r++) grid[r][c]=1;
+    }
+    for(let c=4;c<=18;c+=4){
+      for(let r=4;r<14;r++) grid[r][c]=1;
+    }
+    grid[start.r][start.c]=0; grid[end.r][end.c]=0;
+  }
+
+  if(name === 'edge'){
+    // Cap demo: a wall with a 1-cell staircase channel (short but many turns).
+    // The only other route goes around the wall through the open bottom row
+    // (few turns but a long detour), so the distance cap decides which path wins.
+    start = {r:2,c:5}; end = {r:9,c:14};
+    for(let r=0;r<ROWS-1;r++) for(let c=6;c<=13;c++) grid[r][c] = 1;
+    for(let i=0;i<=7;i++) grid[2+i][6+i] = 0;
+    for(let i=0;i<=6;i++) grid[2+i][7+i] = 0;
+  }
+
+  // each preset loads with its own rule settings
+  if(name === 'edge') setRules(1, 25); else setRules(0.3, 25);
+
+  buildGridDOM();
+}
+
+// random obstacles: keeps start/end clear and makes sure a path exists
+function randomGrid(density){
+  for(let attempt = 0; attempt < 100; attempt++){
+    const g = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+    for(let r=0; r<ROWS; r++){
+      for(let c=0; c<COLS; c++){
+        if(Math.random() < density) g[r][c] = 1;
+      }
+    }
+    g[start.r][start.c] = 0;
+    g[end.r][end.c] = 0;
+    grid = g;
+    if(runAStar(0)) break;
+    grid = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  }
+  resetStats();
+  buildGridDOM();
+}
+
+document.getElementById('random-grid').onclick = () => randomGrid(0.2);
+document.getElementById('preset-basic').onclick = () => loadPreset('basic');
+document.getElementById('preset-corridor').onclick = () => loadPreset('corridor');
+document.getElementById('preset-edge').onclick = () => loadPreset('edge');
+
+// init
+updateRuleLabels();
+buildGridDOM();
+</script>
+
+</body>
+</html>
